@@ -73,7 +73,7 @@ function toolInfo(j) {
     case 'Edit': case 'MultiEdit': return { label: '编辑 ' + baseName(inp.file_path), kind: 'edit' };
     case 'Write': return { label: '写入 ' + baseName(inp.file_path), kind: 'edit' };
     case 'NotebookEdit': return { label: '编辑 notebook', kind: 'edit' };
-    case 'Bash': {
+    case 'Bash': case 'PowerShell': { // PowerShell tool takes the same `command` field
       const cmd = (inp.command || '').trim();
       if (/\bgit\s+commit\b/.test(cmd)) return { label: 'git 提交中', kind: 'git' };
       if (/\bgit\s+push\b/.test(cmd)) return { label: 'git 推送中', kind: 'git' };
