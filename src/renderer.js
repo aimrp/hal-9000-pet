@@ -378,16 +378,18 @@ function cfg(state, t) {
       c.blink = Math.max(c.blink, wb); c.pupil = 0.9; c.sweat = true; c.glow = 0.86 + 0.1 * Math.sin(t / 90);
       // per-tool micro-expressions
       switch (cur.kind) {
-        case 'read':   // scanning lines left→right, calm
-          c.lx = Math.sin(t / 330) * 0.5; c.ly = 0.06; c.sweat = false; c.blink = auto; break;
+        // NOTE: working always sweats + blinks (the "busy" signal). Each tool adds
+        // its own flavour on top, but must NOT turn the sweat off.
+        case 'read':   // scanning lines left→right
+          c.lx = Math.sin(t / 330) * 0.5; c.ly = 0.06; c.blink = auto; break;
         case 'test': { // nervous: faster blinking, sweating harder
           const fb = (t % 430) < 110 ? 1 : 0;
           c.blink = Math.max(c.blink, fb); c.sweatFast = true; break;
         }
-        case 'git':    // pleased with itself
-          c.sweat = false; c.botReach = 0.24; c.botCurl = 0.3; c.glow = 0.92; break;
+        case 'git':    // pleased with itself — brighter glow + a slow content blink, full round eye
+          c.glow = 0.95; c.blink = (t % 2600) < 160 ? 1 : 0; break;
         case 'search': // curious, glancing around
-          c.sweat = false; c.eyeScale = 1.05; c.pupil = 1.12;
+          c.eyeScale = 1.05; c.pupil = 1.12;
           c.lx = Math.sin(t / 680) * 0.35; c.ly = Math.cos(t / 900) * 0.18; break;
         case 'task':   // delegating: a little companion eye appears
           c.miniEye = true; break;

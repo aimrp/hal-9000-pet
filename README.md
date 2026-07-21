@@ -19,6 +19,16 @@
 
 大小可在**设置**里用滑块实时拖拽调整（80–460px），自动保存。
 
+## ⚠️ 仅适用于 Claude Code
+
+这个宠物**专属于 Claude Code**——它完全依赖 Claude Code 的 **hooks** 机制来感知“忙碌状态”。
+
+- **其它 AI 编程助手 / Agent**（Cursor、Copilot、Windsurf、其它 CLI 工具等）**无法驱动它**：
+  它们没有兼容的 hooks 事件，装了也**不会有任何互动**，宠物只会一直待机发呆。
+- **普通的 Claude 对话**（claude.ai 网页 / Claude 桌面版里的纯聊天，而非 Claude Code）
+  同样**看不到**——只有 **Claude Code 会话**（有工具调用、读写文件、跑命令那种）才会触发它。
+- 一句话：**没有 Claude Code，它就只是个不会动的红眼睛摆件。**
+
 ## 原理
 
 Claude Code 的 **hooks** 会在不同事件触发时执行命令。我们让这些命令把当前状态写进
