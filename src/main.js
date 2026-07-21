@@ -281,7 +281,17 @@ if (!app.requestSingleInstanceLock()) {
 
   // manual dragging (so double-click still works)
   ipcMain.on('drag-start', (_e, p) => { const b = win.getBounds(); dragStart = { px: p.x, py: p.y, bx: b.x, by: b.y }; });
-  ipcMain.on('drag-move', (_e, p) => { if (dragStart) win.setPosition(dragStart.bx + (p.x - dragStart.px), dragStart.by + (p.y - dragStart.py)); });
+  // 拖动时必须连宽高一起设死：只用 setPosition 的话，在分数 DPI 缩放（如 150%）下
+  // 每次移动都要 DIP↔物理像素来回取整，误差会逐次累积，窗口越拖越大（整数缩放不触发）。
+  ipcMain.on('drag-move', (_e, p) => {
+    if (!dragStart) return;
+    const { w, h } = winDims(clampSize(cfg.size));
+    win.setBounds({
+      x: Math.round(dragStart.bx + (p.x - dragStart.px)),
+      y: Math.round(dragStart.by + (p.y - dragStart.py)),
+      width: w, height: h,
+    });
+  });
   ipcMain.on('drag-end', () => { dragStart = null; });
 
   ipcMain.on('open-claude', () => openClaude());
