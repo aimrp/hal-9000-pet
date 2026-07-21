@@ -3,7 +3,8 @@
 // cursor, nudges you when it needs input, and drops the occasional HAL line.
 const fs = require('fs');
 const { ipcRenderer } = require('electron');
-const { STATE_FILE } = require('./state-path.js');
+const { STATE_FILE, DIR } = require('./state-path.js');
+const SESSION_FILE = require('path').join(DIR, 'session.json');
 
 const canvas = document.getElementById('pet');
 const stage = document.getElementById('stage');
@@ -265,7 +266,13 @@ const ERROR_LINES = ["I've picked up a fault in the AE-35 unit.", 'I think there
 const GREET_MORNING = 'Good morning, gentlemen. I am a HAL 9000 computer.';
 const GREET_AFTERNOON = 'Good afternoon, gentlemen. I am a HAL 9000 computer.';
 const GREET_EVENING = 'Good evening, gentlemen. I am a HAL 9000 computer.';
+const WELCOME_LINE = 'Welcome back, Dave.';
 function greetingLine() {
+  // resumed session (launched fresh) -> "Welcome back" instead of the time greeting
+  try {
+    const s = JSON.parse(fs.readFileSync(SESSION_FILE, 'utf8'));
+    if (s && s.source === 'resume' && Date.now() - (s.ts || 0) < 20000) return WELCOME_LINE;
+  } catch {}
   const h = new Date().getHours();
   if (h >= 5 && h < 12) return GREET_MORNING;    // 05:00–11:59
   if (h >= 12 && h < 18) return GREET_AFTERNOON; // 12:00–17:59
@@ -285,7 +292,8 @@ const AUDIO = {
   [GREET_AFTERNOON]: '1.mp3', [GREET_MORNING]: '15.mp3', [GREET_EVENING]: '16.mp3',
   [NUDGE_LINE]: '11.mp3', [OPEN_LINE]: '12.mp3', [REFUSE_LINE]: '13.mp3',
   [GOODBYE_LINE]: '14.mp3', [SHAKE_LINE]: '17.mp3',
-  [CONFIRM_LINE]: '18.mp3', // 18 not recorded yet -> silently text-only
+  [CONFIRM_LINE]: '18.mp3',  // 18 not recorded yet -> silently text-only
+  [WELCOME_LINE]: '19.mp3',  // 19 not recorded yet -> "Welcome back" shows as text only
 };
 DONE_LINES.forEach((l, i) => { AUDIO[l] = (2 + i) + '.mp3'; });   // 2..6
 ERROR_LINES.forEach((l, i) => { AUDIO[l] = (7 + i) + '.mp3'; });  // 7..10
