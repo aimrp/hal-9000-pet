@@ -1,0 +1,20 @@
+{
+  "// note": "Paste the contents of \"hooks\" into ~/.claude/settings.json. Replace the path if you cloned this repo elsewhere. Or just run: npm run install-hooks",
+  "hooks": {
+    "UserPromptSubmit": [
+      { "hooks": [{ "type": "command", "command": "node \"C:\\workspace\\pets\\hooks\\hook.js\" thinking" }] }
+    ],
+    "PreToolUse": [
+      { "hooks": [{ "type": "command", "command": "node \"C:\\workspace\\pets\\hooks\\hook.js\" working" }] }
+    ],
+    "PostToolUse": [
+      { "hooks": [{ "type": "command", "command": "node \"C:\\workspace\\pets\\hooks\\hook.js\" working --detect-error" }] }
+    ],
+    "Notification": [
+      { "hooks": [{ "type": "command", "command": "node \"C:\\workspace\\pets\\hooks\\hook.js\" waiting" }] }
+    ],
+    "Stop": [
+      { "hooks": [{ "type": "command", "command": "node \"C:\\workspace\\pets\\hooks\\hook.js\" done" }] }
+    ]
+  }
+}

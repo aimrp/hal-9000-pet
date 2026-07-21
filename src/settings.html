@@ -1,0 +1,62 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    :root { color-scheme: dark; }
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: transparent;
+      font-family: "Segoe UI", system-ui, sans-serif; color: #e9dfd9;
+      -webkit-user-select: none; user-select: none;
+    }
+    .card {
+      box-sizing: border-box; height: 100%; display: flex; flex-direction: column;
+      background: linear-gradient(180deg, #201b16 0%, #141110 100%);
+      border: 1px solid rgba(255,120,60,0.22); border-radius: 16px;
+      box-shadow: 0 12px 34px rgba(0,0,0,0.5);
+      padding: 14px 18px 16px;
+    }
+    .head {
+      -webkit-app-region: drag; display: flex; align-items: center; justify-content: space-between;
+      font-size: 13.5px; font-weight: 600; letter-spacing: .3px; color: #f2e7e0;
+    }
+    .x {
+      -webkit-app-region: no-drag; cursor: pointer; width: 24px; height: 24px; border-radius: 7px;
+      display: grid; place-items: center; font-size: 17px; color: #b9aca4; line-height: 1;
+    }
+    .x:hover { background: rgba(255,255,255,0.08); color: #fff; }
+    .eye {
+      width: 56px; height: 56px; flex: none; border-radius: 50%; margin: 14px auto 12px;
+      background: radial-gradient(circle at 50% 46%, #fff2cf 0%, #ff6a2a 24%, #b21606 60%, #140302 100%);
+      box-shadow: 0 0 16px 2px rgba(224,60,20,.5), inset 0 0 0 3px #0b0b0b;
+    }
+    .lbl { font-size: 15px; font-weight: 600; text-align: center; }
+    .sub { font-size: 11px; color: #8a807b; text-align: center; margin-top: 3px; margin-bottom: 14px; }
+    .row { -webkit-app-region: no-drag; display: flex; align-items: center; gap: 12px; }
+    input[type=range] { flex: 1; accent-color: #e0451f; height: 4px; -webkit-app-region: no-drag; }
+    .val { min-width: 58px; text-align: right; font-size: 13px; color: #ff6a3a; font-variant-numeric: tabular-nums; }
+    .opt {
+      -webkit-app-region: no-drag; display: flex; align-items: center; gap: 9px;
+      margin-top: 16px; font-size: 13px; cursor: pointer; color: #d9cec7;
+    }
+    .opt input { width: 15px; height: 15px; accent-color: #e0451f; cursor: pointer; }
+    .hint { font-size: 11px; color: #6f6560; line-height: 1.6; margin-top: auto; padding-top: 14px; }
+    b { color: #cbb6a8; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="head"><span>HAL 9000 · 设置</span><span class="x" id="close">×</span></div>
+    <div class="eye"></div>
+    <div class="lbl">大小</div>
+    <div class="sub">拖动滑块即时调整，松开自动保存</div>
+    <div class="row">
+      <input type="range" id="size" min="80" max="460" step="2" />
+      <div class="val"><span id="v">200</span> px</div>
+    </div>
+    <label class="opt"><input type="checkbox" id="mute" /> <span>静音语音（仍显示文字气泡）</span></label>
+    <div class="hint">拖动 HAL 可换位置；<b>双击 HAL 唤起 Claude 窗口</b>。<br/>它会跟随 Claude 会话自动启动。右键 HAL 或托盘图标可打开菜单。</div>
+  </div>
+  <script src="settings.js"></script>
+</body>
+</html>

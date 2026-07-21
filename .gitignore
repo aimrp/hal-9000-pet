@@ -1,0 +1,12 @@
+# dependencies (restore with `npm install`)
+node_modules/
+
+# build output (generate with `npm run pack`)
+dist/
+
+# runtime / local state
+*.log
+
+# OS
+Thumbs.db
+.DS_Store

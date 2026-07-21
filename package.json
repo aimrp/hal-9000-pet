@@ -1,0 +1,46 @@
+{
+  "name": "claude-pet",
+  "version": "0.1.0",
+  "description": "A cartoon HAL 9000 desktop pet that reacts to Claude Code activity via hooks",
+  "main": "src/main.js",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "pack": "bash scripts/pack.sh",
+    "install-hooks": "node hooks/install-hooks.js",
+    "uninstall-hooks": "node hooks/install-hooks.js --remove"
+  },
+  "devDependencies": {
+    "electron": "^32.0.0",
+    "electron-builder": "^24.13.3"
+  },
+  "build": {
+    "appId": "com.claude.halpet",
+    "productName": "HAL 9000 Pet",
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      { "from": "hooks", "to": "hooks" }
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "artifactName": "HAL-9000-Pet-${version}-${arch}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "HAL 9000 Pet"
+    },
+    "portable": {
+      "artifactName": "HAL-9000-Pet-${version}-portable.${ext}"
+    }
+  }
+}
