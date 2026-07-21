@@ -54,6 +54,35 @@ function drawSweat(cx, cy, hR, t, fast) {
   }
 }
 
+// a little magnifying glass HAL peers through while reading / searching
+function drawMagnifier(cx, cy, hR, t, mode) {
+  // it hovers over the lower part of the eye and scans
+  let ox, oy;
+  if (mode === 'read') { ox = cx + Math.sin(t / 330) * hR * 0.46; oy = cy + hR * 0.34; }
+  else { ox = cx + Math.cos(t / 640) * hR * 0.42; oy = cy + hR * 0.30 + Math.sin(t / 500) * hR * 0.12; }
+  const r = hR * 0.27;
+
+  // handle first (brass), pointing down-right, so the lens sits on top of it
+  const a = Math.PI * 0.30;
+  const hx = ox + Math.cos(a) * r, hy = oy + Math.sin(a) * r;
+  ctx.lineWidth = hR * 0.075; ctx.lineCap = 'round'; ctx.strokeStyle = '#8a6238';
+  ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(hx + hR * 0.26, hy + hR * 0.26); ctx.stroke();
+  ctx.lineWidth = hR * 0.03; ctx.strokeStyle = '#5c3d0c';
+  ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(hx + hR * 0.26, hy + hR * 0.26); ctx.stroke();
+
+  // glass — translucent so the eye shows through (the "looking through it" effect)
+  ctx.beginPath(); ctx.arc(ox, oy, r, 0, Math.PI * 2);
+  ctx.fillStyle = 'rgba(190,225,255,0.16)'; ctx.fill();
+  // metal ring + rim highlight
+  ctx.lineWidth = hR * 0.05; ctx.strokeStyle = '#2c2c31'; ctx.stroke();
+  ctx.lineWidth = hR * 0.018; ctx.strokeStyle = 'rgba(160,165,180,0.7)';
+  ctx.beginPath(); ctx.arc(ox, oy, r - hR * 0.03, 0, Math.PI * 2); ctx.stroke();
+  // glass glint
+  ctx.lineWidth = hR * 0.028; ctx.lineCap = 'round'; ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+  ctx.beginPath(); ctx.arc(ox - r * 0.32, oy - r * 0.32, r * 0.42, Math.PI * 0.95, Math.PI * 1.55); ctx.stroke();
+  ctx.lineCap = 'butt';
+}
+
 // memory being compacted: fine static + the glow washing out
 function drawFading(cx, cy, eR, t) {
   ctx.save(); circle(cx, cy, eR); ctx.clip();
@@ -367,7 +396,7 @@ function cfg(state, t) {
   const c = { lx: 0, ly: 0, topReach: 0, botReach: 0, topCurl: 0, botCurl: 0,
     pupil: 1, brow: 0, glow: 0.6, spin: false, sparkle: false, zzz: false,
     jitter: false, glitch: false, sweat: false, sweatFast: false, cigar: false,
-    fading: false, miniEye: false, tremble: false, dance: false, eyeScale: 1, blink: auto };
+    fading: false, miniEye: false, tremble: false, dance: false, magnify: null, eyeScale: 1, blink: auto };
   switch (state) {
     case 'idle': c.glow = 0.5 + 0.08 * Math.sin(t / 1500); break;
     // thinking: the glowing pupil rolls around in a circle (pondering)
@@ -380,17 +409,17 @@ function cfg(state, t) {
       switch (cur.kind) {
         // NOTE: working always sweats + blinks (the "busy" signal). Each tool adds
         // its own flavour on top, but must NOT turn the sweat off.
-        case 'read':   // scanning lines left→right
-          c.lx = Math.sin(t / 330) * 0.5; c.ly = 0.06; c.blink = auto; break;
+        case 'read':   // scanning lines left→right, holding up a magnifier
+          c.lx = Math.sin(t / 330) * 0.5; c.ly = 0.06; c.blink = auto; c.magnify = 'read'; break;
         case 'test': { // nervous: faster blinking, sweating harder
           const fb = (t % 430) < 110 ? 1 : 0;
           c.blink = Math.max(c.blink, fb); c.sweatFast = true; break;
         }
         case 'git':    // pleased with itself — brighter glow + a slow content blink, full round eye
           c.glow = 0.95; c.blink = (t % 2600) < 160 ? 1 : 0; break;
-        case 'search': // curious, glancing around
+        case 'search': // curious, glancing around with a magnifier
           c.eyeScale = 1.05; c.pupil = 1.12;
-          c.lx = Math.sin(t / 680) * 0.35; c.ly = Math.cos(t / 900) * 0.18; break;
+          c.lx = Math.sin(t / 680) * 0.35; c.ly = Math.cos(t / 900) * 0.18; c.magnify = 'search'; break;
         case 'task':   // delegating: a little companion eye appears
           c.miniEye = true; break;
       }
@@ -763,6 +792,7 @@ function draw(now) {
   // working = sweating, waiting = smoking a cigar
   if (c.sweat || c.sweatFast) drawSweat(cx, cy, housingR, t, c.sweatFast);
   if (c.cigar) drawCigar(cx, cy, housingR, t);
+  if (c.magnify) drawMagnifier(cx, cy, housingR, t, c.magnify); // reading / searching
   if (c.miniEye) drawMiniEye(cx, cy, housingR, t);   // subagent running
   if (petted && canPet) drawPetHeart(cx, cy, housingR, t);
   if (dizzy) drawDizzyStars(cx, cy, housingR, t);
