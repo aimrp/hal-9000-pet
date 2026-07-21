@@ -54,6 +54,34 @@ function drawSweat(cx, cy, hR, t, fast) {
   }
 }
 
+// lines of code scrolling up inside the eye, like a screen reflected on the glass
+const CODE_LINES = [
+  'function draw(t){', '  const x = a*2;', '  return run(x);', 'if (ok) commit();',
+  'for(i=0;i<n;i++)', '  sum += arr[i];', '}  // 9000', 'let hal = init();',
+  'await build();', 'git push origin', '  render(frame);', 'export default hal;',
+];
+function drawCodeReflection(cx, cy, eR, t) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter'; // reads as glowing screen glare
+  const fsz = Math.max(7, eR * 0.15);
+  ctx.font = `${fsz}px "Consolas","Courier New",monospace`;
+  ctx.textBaseline = 'alphabetic';
+  const lineH = fsz * 1.6, L = CODE_LINES.length;
+  const prog = (t * 0.024) / lineH;   // scrolls upward over time
+  const off = (prog % 1) * lineH;
+  const base = Math.floor(prog);
+  let k = 0;
+  for (let y = cy - eR - off; y < cy + eR + lineH; y += lineH, k++) {
+    const idx = (((base + k) % L) + L) % L;
+    const dy = (y - fsz * 0.35 - cy) / eR;          // -1 top .. 1 bottom
+    const a = 0.20 * Math.max(0, 1 - dy * dy);        // fade toward the curved edges
+    if (a < 0.012) continue;
+    ctx.fillStyle = `rgba(165,235,255,${a})`;
+    ctx.fillText(CODE_LINES[idx], cx - eR * 0.78, y);
+  }
+  ctx.restore();
+}
+
 // a little magnifying glass HAL peers through while reading / searching
 function drawMagnifier(cx, cy, hR, t, mode) {
   // it hovers over the lower part of the eye and scans
@@ -396,7 +424,7 @@ function cfg(state, t) {
   const c = { lx: 0, ly: 0, topReach: 0, botReach: 0, topCurl: 0, botCurl: 0,
     pupil: 1, brow: 0, glow: 0.6, spin: false, sparkle: false, zzz: false,
     jitter: false, glitch: false, sweat: false, sweatFast: false, cigar: false,
-    fading: false, miniEye: false, tremble: false, dance: false, magnify: null, eyeScale: 1, blink: auto };
+    fading: false, miniEye: false, tremble: false, dance: false, magnify: null, code: null, eyeScale: 1, blink: auto };
   switch (state) {
     case 'idle': c.glow = 0.5 + 0.08 * Math.sin(t / 1500); break;
     // thinking: the glowing pupil rolls around in a circle (pondering)
@@ -420,6 +448,10 @@ function cfg(state, t) {
         case 'search': // curious, glancing around with a magnifier
           c.eyeScale = 1.05; c.pupil = 1.12;
           c.lx = Math.sin(t / 680) * 0.35; c.ly = Math.cos(t / 900) * 0.18; c.magnify = 'search'; break;
+        case 'edit':   // writing code — screen reflection scrolls in the eye
+          c.code = true; break;
+        case 'bash':   // running a command — same code reflection
+          c.code = true; break;
         case 'task':   // delegating: a little companion eye appears
           c.miniEye = true; break;
       }
@@ -689,6 +721,8 @@ function draw(now) {
 
   ctx.fillStyle = 'rgba(255,255,255,0.92)'; circle(cx - eR * 0.34, cy - eR * 0.36, eR * 0.17); ctx.fill();
   ctx.fillStyle = 'rgba(255,255,255,0.75)'; circle(cx - eR * 0.05, cy - eR * 0.52, eR * 0.08); ctx.fill();
+
+  if (c.code) drawCodeReflection(cx, cy, eR, t); // writing code / running a command
 
   if (c.glitch) {
     for (let i = 0; i < 3; i++) {
