@@ -1,5 +1,5 @@
 {
-  "// note": "Paste the contents of \"hooks\" into ~/.claude/settings.json. Replace the path if you cloned this repo elsewhere. Or just run: npm run install-hooks",
+  "// note": "Manual reference only — the easy path is `npm run install-hooks` (works on Windows & macOS, writes the right paths automatically). If hand-editing, paste \"hooks\" into ~/.claude/settings.json and fix the path to where you cloned this repo. Windows uses a path like C:\\workspace\\pets\\hooks\\hook.js (shown below); macOS uses a POSIX path like /Users/you/workspace/hal-9000-pet/hooks/hook.js.",
   "hooks": {
     "UserPromptSubmit": [
       { "hooks": [{ "type": "command", "command": "node \"C:\\workspace\\pets\\hooks\\hook.js\" thinking" }] }

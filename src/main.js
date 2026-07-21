@@ -1,10 +1,19 @@
 const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, screen, Notification, dialog, session } = require('electron');
-const { execFile } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const config = require('./config.js');
 const hooksInstall = require('./hooks-install.js');
+const platform = require('./platform.js');
 const { DIR } = require('./state-path.js');
+
+const IS_MAC = platform.IS_MAC;
+
+// macOS renders a very small transparent window as an opaque WHITE card (a
+// compositor bug: below ~170px the window loses its transparency). The window is
+// sized ~1.9x the pet, so we floor the pet size to keep the window above that
+// threshold. size 100 -> 190px window was transparent in testing; 110 adds margin.
+// Windows has no such bug, so it keeps the original 80px minimum.
+const MIN_SIZE = IS_MAC ? 110 : config.MIN_SIZE;
 
 const PID_FILE = path.join(DIR, 'pet.pid');
 const LAUNCH_FILE = path.join(DIR, 'launch.json');
@@ -66,7 +75,9 @@ let dragStart = null;
 let cursorTimer = null;
 let cfg = config.load();
 
-function clampSize(s) { return Math.max(config.MIN_SIZE, Math.min(config.MAX_SIZE, Math.round(s))); }
+function clampSize(s) { return Math.max(MIN_SIZE, Math.min(config.MAX_SIZE, Math.round(s))); }
+// A saved size from another platform (or below the macOS floor) gets pulled into range.
+if (cfg.size !== clampSize(cfg.size)) { cfg.size = clampSize(cfg.size); config.save(cfg); }
 // Window is larger than HAL to leave headroom above for the speech bubble.
 function winDims(size) { return { w: Math.round(size * 1.9), h: Math.round(size * 1.7) }; }
 // Default bottom-right resting spot. Extra right margin (~half the pet size) so
@@ -89,12 +100,15 @@ function createWindow() {
     width: w, height: h,
     x: pos.x, y: pos.y,
     frame: false, transparent: true, resizable: false,
+    backgroundColor: '#00000000', // fully-transparent ARGB (good practice for transparent windows)
     skipTaskbar: true, alwaysOnTop: true, hasShadow: false,
     webPreferences: { nodeIntegration: true, contextIsolation: false, autoplayPolicy: 'no-user-gesture-required' },
   });
 
   win.setAlwaysOnTop(true, 'screen-saver');
   win.setIgnoreMouseEvents(true, { forward: true }); // start passthrough; hover re-enables
+  // macOS: float across every Space and over fullscreen apps (Windows ignores this).
+  if (IS_MAC) win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.loadFile(path.join(__dirname, 'index.html'));
 }
 
@@ -155,8 +169,7 @@ function clearAutoLaunch() {
 
 // ---- double-click -> bring the running Claude desktop app to the foreground ----
 function openClaude() {
-  const ps = path.join(__dirname, 'focus-claude.ps1');
-  execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ps], { windowsHide: true }, () => {});
+  platform.focusClaude(__dirname);
 }
 
 // ---- quit with HAL's goodbye line (renderer says it, then signals quit-now) ----
@@ -176,10 +189,9 @@ function quitWithLine() {
 let claudeSeen = false, claudeMiss = 0, claudeTimer = null;
 function checkClaude() {
   if (quitting) return;
-  const psCmd = "if (Get-Process claude -ErrorAction SilentlyContinue | Where-Object { $_.MainWindowHandle -ne 0 }) { 'YES' } else { 'NO' }";
-  execFile('powershell.exe', ['-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', psCmd], { windowsHide: true }, (err, stdout) => {
-    if (err || quitting) return;
-    if (/YES/.test(stdout)) { claudeSeen = true; claudeMiss = 0; }
+  platform.isClaudeRunning((running) => {
+    if (quitting || running == null) return; // null = couldn't tell, keep waiting
+    if (running) { claudeSeen = true; claudeMiss = 0; }
     else if (claudeSeen && ++claudeMiss >= 2) { // gone for 2 checks -> Claude closed
       if (claudeTimer) { clearInterval(claudeTimer); claudeTimer = null; }
       quitWithLine();
@@ -187,35 +199,54 @@ function checkClaude() {
   });
 }
 
-function makeTrayIcon() {
-  const S = 16;
+// Render HAL's red eye as a BGRA bitmap at `S` px (Windows tray: 16; macOS menu
+// bar: 18). Colored on purpose — HAL's red eye is the whole point, so we do NOT
+// use a monochrome template image.
+function renderEye(S) {
   const buf = Buffer.alloc(S * S * 4, 0);
+  const c = (S - 1) / 2;
   const set = (x, y, r, g, b, a = 255) => {
     if (x < 0 || y < 0 || x >= S || y >= S) return;
     const i = (y * S + x) * 4; buf[i] = b; buf[i + 1] = g; buf[i + 2] = r; buf[i + 3] = a;
   };
+  const rOuter = S / 2, rGlow = S * 0.34, rPupil = S * 0.1;
   for (let y = 0; y < S; y++) for (let x = 0; x < S; x++) {
-    const dx = x - 7.5, dy = y - 7.5, d = Math.sqrt(dx * dx + dy * dy);
-    if (d <= 7.5) set(x, y, 8, 8, 8);
-    if (d <= 5.5) set(x, y, 60 + (5.5 - d) * 34, 12, 6);
-    if (d <= 1.6) set(x, y, 255, 210, 130);
+    const dx = x - c, dy = y - c, d = Math.sqrt(dx * dx + dy * dy);
+    if (d <= rOuter) set(x, y, 8, 8, 8);
+    if (d <= rGlow) set(x, y, 60 + (rGlow - d) * (34 * 16 / S), 12, 6);
+    if (d <= rPupil) set(x, y, 255, 210, 130);
   }
-  return nativeImage.createFromBitmap(buf, { width: S, height: S });
+  return buf;
+}
+
+function makeTrayIcon() {
+  if (IS_MAC) {
+    // Menu bar is ~22px tall; a 16pt icon with an @2x rep stays crisp on Retina.
+    const base = nativeImage.createFromBitmap(renderEye(18), { width: 18, height: 18 });
+    base.addRepresentation({ width: 18, height: 18, scaleFactor: 2, buffer: renderEye(36) });
+    return base;
+  }
+  return nativeImage.createFromBitmap(renderEye(16), { width: 16, height: 16 });
 }
 
 function openSettings() {
   if (settingsWin && !settingsWin.isDestroyed()) { settingsWin.focus(); return; }
   const W = 300, H = 384;
   const area = screen.getPrimaryDisplay().workArea;
+  // macOS: dock to the TOP-right, under the menu-bar icon.
+  // Windows: dock to the bottom-right, by the pet in the tray corner.
+  const x = area.x + area.width - W - 16;
+  const y = IS_MAC ? area.y + 12 : area.y + area.height - H - 16;
   settingsWin = new BrowserWindow({
     width: W, height: H,
-    x: area.x + area.width - W - 16,   // dock to the bottom-right, by the pet
-    y: area.y + area.height - H - 16,
+    x, y,
     frame: false, transparent: true, resizable: false,
+    backgroundColor: '#00000000', // macOS: keep the window transparent, not white
     skipTaskbar: true, alwaysOnTop: true, hasShadow: false,
     webPreferences: { nodeIntegration: true, contextIsolation: false },
   });
   settingsWin.setAlwaysOnTop(true, 'screen-saver');
+  if (IS_MAC) settingsWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   settingsWin.loadFile(path.join(__dirname, 'settings.html'));
   settingsWin.on('closed', () => { settingsWin = null; });
 }
@@ -252,6 +283,13 @@ if (!app.requestSingleInstanceLock()) {
   app.on('second-instance', () => { if (win && !win.isDestroyed() && !hidden) win.showInactive(); });
 
   app.whenReady().then(() => {
+  // macOS: run as a pure menu-bar (accessory) app — no Dock icon, no app menu,
+  // never steals focus. This is the mac analogue of Windows' skipTaskbar.
+  if (IS_MAC) {
+    app.setActivationPolicy('accessory');
+    if (app.dock) app.dock.hide();
+  }
+
   // Only allow webcam access when the user has turned camera tracking on.
   session.defaultSession.setPermissionRequestHandler((wc, permission, cb) => cb(permission === 'media' ? cameraOn : false));
   session.defaultSession.setPermissionCheckHandler((wc, permission) => permission === 'media' ? cameraOn : false);
@@ -263,10 +301,17 @@ if (!app.requestSingleInstanceLock()) {
   tray = new Tray(makeTrayIcon());
   tray.setToolTip('HAL 9000');
   tray.setContextMenu(buildMenu());
-  // hidden -> click the tray icon to bring HAL back; otherwise show the menu
-  // rebuild the tray menu right before showing it, so its checkboxes are never stale
-  tray.on('click', () => { if (hidden) { setHidden(false); } else { tray.setContextMenu(buildMenu()); tray.popUpContextMenu(); } });
-  tray.on('right-click', () => { tray.setContextMenu(buildMenu()); });
+  if (IS_MAC) {
+    // Menu bar: the OS opens the context menu on click. We keep it fresh by
+    // rebuilding on every state change (setHidden/setCamera/toggleHooks/lock),
+    // so its checkboxes are never stale. When hidden, the "显示 HAL" menu item
+    // brings it back.
+  } else {
+    // Windows tray: hidden -> click restores HAL; otherwise pop the menu.
+    // Rebuild right before showing so its checkboxes are never stale.
+    tray.on('click', () => { if (hidden) { setHidden(false); } else { tray.setContextMenu(buildMenu()); tray.popUpContextMenu(); } });
+    tray.on('right-click', () => { tray.setContextMenu(buildMenu()); });
+  }
 
   firstRunSetup(); // first launch on a machine auto-associates with Claude Code
 
@@ -298,7 +343,10 @@ if (!app.requestSingleInstanceLock()) {
   ipcMain.on('quit-now', () => app.quit()); // goodbye line finished -> close for real
   ipcMain.on('camera-failed', (_e, reason) => {
     setCamera(false);
-    dialog.showErrorBox('HAL 9000 · 摄像头', '无法访问摄像头（' + reason + '）。\n请在 Windows 设置 → 隐私 → 摄像头 里允许桌面应用访问，然后重试。');
+    const how = IS_MAC
+      ? '请在 系统设置 → 隐私与安全性 → 摄像头 里允许本应用访问，然后重试。'
+      : '请在 Windows 设置 → 隐私 → 摄像头 里允许桌面应用访问，然后重试。';
+    dialog.showErrorBox('HAL 9000 · 摄像头', '无法访问摄像头（' + reason + '）。\n' + how);
   });
   ipcMain.on('nudge', () => {
     try { if (Notification.isSupported()) new Notification({ title: 'HAL 9000', body: 'Claude 需要你的确认', silent: false }).show(); } catch {}
@@ -312,7 +360,7 @@ if (!app.requestSingleInstanceLock()) {
     win.webContents.send('cursor', { x: p.x - b.x, y: p.y - b.y });
   }, 60);
 
-  ipcMain.handle('get-size', () => ({ size: cfg.size, min: config.MIN_SIZE, max: config.MAX_SIZE }));
+  ipcMain.handle('get-size', () => ({ size: clampSize(cfg.size), min: MIN_SIZE, max: config.MAX_SIZE }));
   ipcMain.handle('get-muted', () => !!cfg.muted);
   ipcMain.on('set-muted', (_e, on) => {
     cfg.muted = !!on; config.save(cfg);

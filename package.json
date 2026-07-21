@@ -7,7 +7,9 @@
   "license": "MIT",
   "scripts": {
     "start": "electron .",
-    "pack": "bash scripts/pack.sh",
+    "pack": "node scripts/pack.js",
+    "pack:mac": "bash scripts/pack-mac.sh",
+    "pack:win": "bash scripts/pack.sh",
     "install-hooks": "node hooks/install-hooks.js",
     "uninstall-hooks": "node hooks/install-hooks.js --remove"
   },
@@ -30,6 +32,20 @@
         "nsis",
         "portable"
       ],
+      "artifactName": "HAL-9000-Pet-${version}-${arch}.${ext}"
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ],
+      "category": "public.app-category.entertainment",
+      "extendInfo": {
+        "LSUIElement": true
+      },
+      "artifactName": "HAL-9000-Pet-${version}-${arch}.${ext}"
+    },
+    "dmg": {
       "artifactName": "HAL-9000-Pet-${version}-${arch}.${ext}"
     },
     "nsis": {

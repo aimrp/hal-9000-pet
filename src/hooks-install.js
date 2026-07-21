@@ -4,6 +4,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { ensureHookWrappers, OUR_HOOK_PATTERN } = require('./platform.js');
 
 const SETTINGS = path.join(os.homedir(), '.claude', 'settings.json');
 
@@ -18,22 +19,6 @@ const MAP = {
   Stop: { state: 'done' },
 };
 
-// When `exe` is given (packaged app), write .cmd wrappers that run the hook
-// scripts through the app's OWN bundled runtime (ELECTRON_RUN_AS_NODE), so the
-// target machine needs no system Node. Returns { hookCmd, launchCmd } or null.
-function ensureWrappers(hooksDir, exe) {
-  try {
-    const dir = path.join(os.homedir(), '.claude-pet'); // always writable, unlike Program Files
-    fs.mkdirSync(dir, { recursive: true });
-    const mk = (script) => `@echo off\r\nset "ELECTRON_RUN_AS_NODE=1"\r\n"${exe}" "${path.join(hooksDir, script)}" %*\r\n`;
-    const hookCmd = path.join(dir, 'hal-hook.cmd');
-    const launchCmd = path.join(dir, 'hal-launch.cmd');
-    fs.writeFileSync(hookCmd, mk('hook.js'));
-    fs.writeFileSync(launchCmd, mk('launch.js'));
-    return { hookCmd, launchCmd };
-  } catch { return null; }
-}
-
 function cmdFor(hooksDir, m, runner) {
   const args = m.script ? '' : ` ${m.state}${m.flags ? ' ' + m.flags.join(' ') : ''}`;
   if (runner) {
@@ -46,7 +31,7 @@ function cmdFor(hooksDir, m, runner) {
 
 // does this command belong to us (so re-install can replace it cleanly)?
 function isOurs(cmd) {
-  return typeof cmd === 'string' && /(hook\.js|launch\.js|hal-hook\.cmd|hal-launch\.cmd)/.test(cmd);
+  return typeof cmd === 'string' && OUR_HOOK_PATTERN.test(cmd);
 }
 
 function load() {
@@ -67,7 +52,7 @@ function isInstalled() {
 function run({ remove = false, hooksDir, exe }) {
   const settings = load();
   settings.hooks = settings.hooks || {};
-  const runner = (!remove && exe) ? ensureWrappers(hooksDir, exe) : null;
+  const runner = (!remove && exe) ? ensureHookWrappers(hooksDir, exe) : null;
   for (const [event, m] of Object.entries(MAP)) {
     const groups = Array.isArray(settings.hooks[event]) ? settings.hooks[event] : [];
     const cleaned = groups
