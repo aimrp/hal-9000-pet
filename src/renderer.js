@@ -342,7 +342,10 @@ const MIND_LINE = ERROR_LINES[2]; // "My mind is going. I can feel it."  -> 9.mp
 function onEnter(s, from) {
   if (s === 'waiting') { waitingSince = Date.now(); nudged = false; setQuote(CONFIRM_LINE, 3500); }
   if (s === 'compacting') setQuote(MIND_LINE, 5000); // context being compacted = memory fading
-  if (s === 'error') setQuote(rand(ERROR_LINES), 4200);
+  // failure lines include the canonical "I'm afraid I can't do that" (13.mp3).
+  // REFUSE_LINE keeps its own audio number, so it's merged here rather than added
+  // to ERROR_LINES (whose forEach auto-numbers 7..10).
+  if (s === 'error') setQuote(rand([...ERROR_LINES, REFUSE_LINE]), 4200);
   if (s === 'done' && Math.random() < 0.4) setQuote(rand(DONE_LINES), 2600);
   if (s === 'celebrate') setQuote(rand(DONE_LINES), 3200); // big job done — always says something
 }
@@ -921,8 +924,7 @@ stage.addEventListener('dblclick', (e) => {
   const L = layout();
   if (Math.hypot(e.offsetX - L.cx, e.offsetY - L.cy) < L.housingR * 1.05) {
     ipcRenderer.send('open-claude');
-    // usually complies ("Opening the pod bay doors."), occasionally the famous refusal — still opens
-    setQuote(Math.random() < 0.3 ? REFUSE_LINE : OPEN_LINE, 2600);
+    setQuote(OPEN_LINE, 2600); // "Opening the pod bay doors." (the refusal moved to failure)
   }
 });
 window.addEventListener('contextmenu', (e) => { e.preventDefault(); ipcRenderer.send('pet-context-menu'); });
