@@ -16,7 +16,7 @@ const MAP = {
   PostToolUse: { state: 'working', flags: ['--detect-error', '--tool'] },
   Notification: { state: 'waiting', flags: ['--notify'] },
   PreCompact: { state: 'compacting' }, // context about to be compacted = HAL's memory fading
-  Stop: { state: 'done' },
+  Stop: { state: 'done', flags: ['--stop'] },
 };
 
 function cmdFor(hooksDir, m, runner) {

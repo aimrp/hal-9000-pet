@@ -148,6 +148,52 @@ function drawConfetti(cx, cy, petSize, t) {
   }
 }
 
+// radar ping — expanding rings + a sweeping arm, while the network test runs
+function drawRadar(cx, cy, hR, petSize, t) {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  // expanding rings
+  for (let i = 0; i < 3; i++) {
+    const p = ((t / 950) + i / 3) % 1;
+    const rr = hR * (0.42 + p * 0.95);
+    ctx.globalAlpha = (1 - p) * 0.5;
+    ctx.lineWidth = petSize * 0.02;
+    ctx.strokeStyle = 'rgba(120,220,255,1)';
+    ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.stroke();
+  }
+  // sweeping radar arm
+  const a = (t / 700) % (Math.PI * 2);
+  const grd = ctx.createLinearGradient(cx, cy, cx + Math.cos(a) * hR, cy + Math.sin(a) * hR);
+  grd.addColorStop(0, 'rgba(120,220,255,0.55)'); grd.addColorStop(1, 'rgba(120,220,255,0)');
+  ctx.globalAlpha = 1; ctx.strokeStyle = grd; ctx.lineWidth = petSize * 0.03; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + Math.cos(a) * hR * 0.92, cy + Math.sin(a) * hR * 0.92); ctx.stroke();
+  ctx.restore();
+}
+
+// pomodoro countdown ring hugging the outside of the housing (focus=amber, break=teal)
+function drawPomoRing(cx, cy, hR, petSize, p) {
+  const remain = Math.max(0, p.endsAt - Date.now());
+  const frac = Math.max(0, Math.min(1, remain / (p.duration || 1)));
+  const rr = hR * 1.05, start = -Math.PI / 2;
+  const col = p.phase === 'focus' ? '#ff8a3a' : '#4ecdc4';
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.lineWidth = petSize * 0.028;
+  ctx.strokeStyle = 'rgba(255,255,255,0.08)';                    // track
+  ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.stroke();
+  ctx.strokeStyle = col; ctx.shadowColor = col; ctx.shadowBlur = petSize * 0.05;   // progress
+  ctx.beginPath(); ctx.arc(cx, cy, rr, start, start + frac * Math.PI * 2); ctx.stroke();
+  ctx.restore();
+}
+
+// brief "crunching numbers" flash inside the eye (used by Today's Stats)
+function drawComputeFlash(cx, cy, eR, t) {
+  ctx.save();
+  ctx.beginPath(); ctx.arc(cx, cy, eR, 0, Math.PI * 2); ctx.clip();
+  drawCodeReflection(cx, cy, eR, t);   // reuse the scrolling-glyph look
+  ctx.restore();
+}
+
 // a small heart drifting up while HAL is being petted
 function drawPetHeart(cx, cy, hR, t) {
   const p = (t % 2200) / 2200;
@@ -349,7 +395,7 @@ function onEnter(s, from) {
   if (s === 'done' && Math.random() < 0.4) setQuote(rand(DONE_LINES), 2600);
   if (s === 'celebrate') setQuote(rand(DONE_LINES), 3200); // big job done — always says something
 }
-ipcRenderer.on('quote', (_e, q) => setQuote(q.text, q.ms || 2000));
+ipcRenderer.on('quote', (_e, q) => { if (!q.text) quote = null; else setQuote(q.text, q.ms || 2000); }); // empty text = clear the bubble now
 
 poll();
 setInterval(poll, 150);
@@ -363,6 +409,49 @@ let camStream = null, camTimer = null, camVideo = null, camCanvas = null, camCtx
 const camGaze = { x: 0, y: 0, active: false, until: 0 };
 let camScareUntil = 0, camScareCd = 0; // a sudden big motion (fist thrust) -> flinch
 ipcRenderer.on('camera', (_e, on) => { if (on) startCamera(); else stopCamera(); });
+
+// ---- focus timer ring + end alarm (bell + shake) ----
+let pomoState = { running: false };
+ipcRenderer.on('pomodoro', (_e, p) => { pomoState = p || { running: false }; });
+
+let alarmUntil = 0;
+ipcRenderer.on('focus-done', () => { alarmUntil = Date.now() + 2800; playBell(); setQuote('🍅 专注结束，干得好', 6000); });
+// a pleasant 3-note chime, synthesized (no audio file needed); respects mute
+function playBell() {
+  if (muted) return;
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ac = new AC();
+    const notes = [880, 1108.7, 1318.5]; // A5 · C#6 · E6, an ascending arpeggio
+    notes.forEach((freq, i) => {
+      const t0 = ac.currentTime + i * 0.26;
+      [1, 2].forEach((mult, h) => {                 // fundamental + octave for a bell-ish timbre
+        const o = ac.createOscillator(); o.type = 'sine'; o.frequency.value = freq * mult;
+        const g = ac.createGain(); o.connect(g); g.connect(ac.destination);
+        const peak = h === 0 ? 0.5 : 0.14;
+        g.gain.setValueAtTime(0.0001, t0);
+        g.gain.exponentialRampToValueAtTime(peak, t0 + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t0 + 1.1);
+        o.start(t0); o.stop(t0 + 1.15);
+      });
+    });
+    setTimeout(() => { try { ac.close(); } catch {} }, 3000);
+  } catch {}
+}
+
+// ---- today's stats: a brief "computing" flash in the eye (the numbers show in a popover window) ----
+let statsUntil = 0;
+ipcRenderer.on('stats-flash', () => { statsUntil = Date.now() + 1300; });
+
+// ---- network speed test (triggered from the left-click action menu) ----
+let netTesting = false;
+ipcRenderer.on('nettest-start', () => { netTesting = true; setQuote('📡 正在测速…', 30000); });
+ipcRenderer.on('nettest-done', (_e, results) => {
+  netTesting = false;
+  let txt = '📡 网络延迟';
+  for (const r of results || []) txt += '\n' + r.name + '  ' + (r.ms == null ? '超时' : r.ms + ' ms');
+  setQuote(txt, 7000);
+});
 
 async function startCamera() {
   if (camStream) return;
@@ -504,20 +593,21 @@ function lid(cx, cy, eyeR, fromTop, reach, curl) {
 
 // ---- speech bubble ----
 function wrapText(text, maxW) {
-  const words = String(text).split(/\s+/);
-  const lines = []; let line = '';
+  const MAX = 6;
+  const s = String(text);
+  const trunc = (l) => { while (ctx.measureText(l).width > maxW && l.length > 1) l = l.slice(0, -2) + '…'; return l; };
+  // structured text (contains explicit newlines, e.g. stats / speed-test): each line
+  // stays on ITS OWN line — never re-wrapped/split mid-value; only truncated if huge.
+  if (s.includes('\n')) return s.split('\n').slice(0, MAX).map(trunc);
+  // free text: word-wrap into up to MAX lines
+  const words = s.split(/\s+/); const lines = []; let line = '';
   for (const w of words) {
     const test = line ? line + ' ' + w : w;
-    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; }
+    if (ctx.measureText(test).width > maxW && line) { lines.push(line); line = w; if (lines.length >= MAX) break; }
     else line = test;
-    if (lines.length >= 3) break;
   }
-  if (line && lines.length < 3) lines.push(line);
-  // hard-truncate very long single tokens
-  return lines.map((l) => {
-    while (ctx.measureText(l).width > maxW && l.length > 1) l = l.slice(0, -2) + '…';
-    return l;
-  });
+  if (line && lines.length < MAX) lines.push(line);
+  return lines.map(trunc);
 }
 function drawBubble(text, kind, petSize, bottomY, cx) {
   const fsz = Math.max(11, petSize * 0.12);
@@ -590,7 +680,7 @@ function draw(now) {
 
   const sinceActive = Date.now() - lastActive;
   // ~1min awake-idle before dozing — but camera-detected motion keeps HAL awake
-  const sleeping = effective === 'idle' && sinceActive > 60000 && !camGaze.active;
+  const sleeping = effective === 'idle' && sinceActive > 60000 && !camGaze.active && !pomoState.running;
   // resting the pointer on HAL for 2s = petting it (also wakes it from a doze)
   const petted = overHAL && hoverSince > 0 && Date.now() - hoverSince > 1500 && !dragArmed;
   const dizzy = Date.now() < dizzyUntil;
@@ -654,6 +744,8 @@ function draw(now) {
       if (!nudged) { nudged = true; ipcRenderer.send('nudge'); setQuote(NUDGE_LINE, 3500); }
     }
   }
+  const alarm = Date.now() < alarmUntil;
+  if (alarm) glowBoost += 0.3;                 // focus-ended alarm: bright + shaking
   c.glow = Math.min(1, c.glow + glowBoost);
 
   let cx = baseCx, cy = layout().cy + bob;
@@ -686,6 +778,7 @@ function draw(now) {
 
   if (c.jitter) { cx += (Math.random() - 0.5) * petSize * 0.045; cy += (Math.random() - 0.5) * petSize * 0.025; }
   if (c.tremble) { cx += (Math.random() - 0.5) * petSize * 0.016; cy += (Math.random() - 0.5) * petSize * 0.016; }
+  if (alarm) { cx += Math.sin(t / 38) * petSize * 0.055; cy += Math.sin(t / 29) * petSize * 0.03; } // ringing shake
 
   // dancing: hop + sway + tilt (the ground shadow was already drawn, so it stays put)
   let danceTilt = 0;
@@ -841,6 +934,9 @@ function draw(now) {
   if (c.miniEye) drawMiniEye(cx, cy, housingR, t);   // subagent running
   if (petted && canPet) drawPetHeart(cx, cy, housingR, t);
   if (dizzy) drawDizzyStars(cx, cy, housingR, t);
+  if (netTesting) drawRadar(cx, cy, housingR, petSize, t); // network speed test
+  if (Date.now() < statsUntil) drawComputeFlash(cx, cy, eR, t); // "结算" digit scroll
+  if (pomoState.running) drawPomoRing(cx, cy, housingR, petSize, pomoState); // focus/break countdown
   if (danceTilt) ctx.restore();                      // end the dance tilt
   if (c.dance) drawConfetti(baseCx, layout().cy, petSize, t);
 
@@ -864,7 +960,7 @@ function draw(now) {
 
   // ---- adaptive frame rate: full speed only when something is actually moving ----
   const busy = state !== 'idle' && state !== 'sleeping';
-  const animating = bootT < BOOT_MS || shuttingDown || idleBehavior !== null || dizzy || dragging || camGaze.active || camScared;
+  const animating = bootT < BOOT_MS || shuttingDown || idleBehavior !== null || dizzy || dragging || camGaze.active || camScared || netTesting || pomoState.running || Date.now() < statsUntil || Date.now() < alarmUntil;
   const blinking = (t % 4200) < 260;
   const nearCursor = cursor ? Math.hypot(cursor.x - baseCx, cursor.y - cy) < housingR * 3 : false;
   const fps = (busy || animating || blinking || nearCursor || bubbleAlpha > 0.01)
@@ -914,13 +1010,21 @@ window.addEventListener('mousemove', (e) => {
   }
   ipcRenderer.send('drag-move', { x: e.screenX, y: e.screenY });
 });
+let clickTimer = null;
 window.addEventListener('mouseup', () => {
   if (!dragArmed) return;
+  const wasDrag = dragging;
   dragArmed = false; dragging = false;
   stage.style.cursor = 'pointer';          // back to the clickable finger
   ipcRenderer.send('drag-end');
+  if (!wasDrag) {
+    // a plain click (no drag) — wait briefly to see if it's actually a double-click
+    if (clickTimer) clearTimeout(clickTimer);
+    clickTimer = setTimeout(() => { clickTimer = null; ipcRenderer.send('open-action-menu'); }, 240);
+  }
 });
 stage.addEventListener('dblclick', (e) => {
+  if (clickTimer) { clearTimeout(clickTimer); clickTimer = null; } // cancel the single-click menu
   const L = layout();
   if (Math.hypot(e.offsetX - L.cx, e.offsetY - L.cy) < L.housingR * 1.05) {
     ipcRenderer.send('open-claude');

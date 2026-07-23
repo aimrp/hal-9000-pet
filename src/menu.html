@@ -1,0 +1,80 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <style>
+    :root { color-scheme: dark; }
+    html, body {
+      margin: 0; height: 100%; overflow: hidden; background: transparent;
+      font-family: "Segoe UI", system-ui, sans-serif; color: #e9dfd9;
+      -webkit-user-select: none; user-select: none;
+    }
+    .card {
+      box-sizing: border-box; display: flex; flex-direction: column;
+      background: linear-gradient(180deg, #201b16 0%, #141110 100%);
+      border: 1px solid rgba(255,120,60,0.20); border-radius: 13px;
+      padding: 8px 8px 9px;
+    }
+    .head { display: flex; align-items: center; justify-content: space-between; padding: 2px 6px 7px; }
+    .head b { color: #b9aca4; font-weight: 600; font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase; }
+    .x { cursor: pointer; width: 18px; height: 18px; border-radius: 5px; display: grid; place-items: center;
+      font-size: 13px; color: #857b76; line-height: 1; }
+    .x:hover { background: rgba(255,255,255,0.08); color: #fff; }
+    .item { display: flex; align-items: center; gap: 10px; padding: 6px 8px; border-radius: 8px;
+      cursor: pointer; transition: background .12s; }
+    .item:hover { background: rgba(255,255,255,0.05); }
+    .ic { width: 16px; height: 16px; flex: none; display: grid; place-items: center; color: #e0995e; }
+    .ic svg { width: 15px; height: 15px; display: block; }
+    .t { flex: 1; min-width: 0; }
+    .t .n { font-size: 11.5px; font-weight: 600; color: #ede2db; }
+    .t .d { font-size: 9.5px; color: #7d746f; margin-top: 1px; }
+    .chev { font-size: 10px; color: #7d746f; transition: transform .15s; }
+
+    /* reminders sub-section (accordion) */
+    .sub { padding: 2px 0 2px 6px; }
+    .subitem { display: flex; align-items: center; gap: 9px; padding: 5px 8px 5px 20px; border-radius: 8px;
+      cursor: pointer; transition: background .12s; }
+    .subitem:hover { background: rgba(255,255,255,0.05); }
+    .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: #5a544f;
+      box-shadow: none; transition: all .12s; }
+    .dot.on { background: #e0995e; box-shadow: 0 0 6px rgba(224,120,50,0.7); }
+    .subitem .n { font-size: 11px; font-weight: 500; color: #d9cec7; }
+    .subitem .sd { font-size: 9px; color: #7d746f; margin-top: 1px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="head"><b>Utilities</b><span class="x" id="close">×</span></div>
+
+    <div class="item" id="act-speedtest">
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round">
+        <circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a14 14 0 0 1 0 18a14 14 0 0 1 0-18"/></svg></span>
+      <div class="t"><div class="n">Network Speed</div><div class="d">Latency to Claude · Google · Baidu</div></div>
+    </div>
+
+    <div class="item" id="act-reminders">
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M6 9a6 6 0 0 1 12 0c0 6 2.5 7.5 2.5 7.5H3.5S6 15 6 9z"/><path d="M10 20a2 2 0 0 0 4 0"/></svg></span>
+      <div class="t"><div class="n">提醒</div><div class="d">专注番茄钟 · 喝水</div></div>
+      <span class="chev" id="rem-chev">▸</span>
+    </div>
+    <div class="sub" id="rem-sub" style="display:none">
+      <div class="subitem" id="act-focus">
+        <span class="dot" id="focus-dot"></span>
+        <div class="t"><div class="n" id="focus-name">专注 25 分</div></div>
+      </div>
+      <div class="subitem" id="act-water">
+        <span class="dot" id="water-dot"></span>
+        <div class="t"><div class="n">喝水提醒</div><div class="sd" id="water-desc">每小时 · 关</div></div>
+      </div>
+    </div>
+
+    <div class="item" id="act-stats">
+      <span class="ic"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M4 20V10M10 20V4M16 20v-6M22 20H2"/></svg></span>
+      <div class="t"><div class="n">Today's Stats</div><div class="d">今日工具 · 报错 · Token</div></div>
+    </div>
+  </div>
+  <script src="menu.js"></script>
+</body>
+</html>

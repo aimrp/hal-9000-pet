@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Menu, Tray, ipcMain, nativeImage, screen, Notification, dialog, session } = require('electron');
 const fs = require('fs');
+const net = require('net');
 const path = require('path');
 const config = require('./config.js');
 const hooksInstall = require('./hooks-install.js');
@@ -251,6 +252,188 @@ function openSettings() {
   settingsWin.on('closed', () => { settingsWin = null; });
 }
 
+// ---- left-click action menu (a pretty popover, distinct from the right-click menu) ----
+let menuWin = null, menuClosedAt = 0, menuGeom = null;
+// resize the menu to fit its content, keeping its bottom glued just above the pet
+function fitMenu(contentH) {
+  if (!menuWin || menuWin.isDestroyed() || !menuGeom) return;
+  const H = Math.max(60, Math.round(contentH) + 2), a = menuGeom.area;
+  let y = menuGeom.anchorBottom - H;                 // grow upward
+  if (y < a.y + 4) y = menuGeom.belowY;              // no room above -> drop below the pet
+  y = Math.max(a.y + 4, Math.min(y, a.y + a.height - H - 4));
+  menuWin.setBounds({ x: menuGeom.x, y, width: menuGeom.w, height: H });
+}
+function openMenu() {
+  if (menuWin && !menuWin.isDestroyed()) { menuWin.close(); return; } // toggle
+  if (Date.now() - menuClosedAt < 350) return; // a click that just blur-closed it = toggle off
+  petSay('', 0); // opening the menu clears any speech bubble so the two never half-overlap
+  const W = 240, initH = 186;
+  const b = win.getBounds();
+  const area = screen.getDisplayMatching(b).workArea;
+  const petSize = b.width / 1.9;
+  const halTop = b.y + Math.round(0.76 * petSize);  // top of the VISIBLE HAL (window has headroom above it)
+  let x = b.x + Math.round(b.width / 2) - Math.round(W / 2);
+  x = Math.max(area.x + 4, Math.min(x, area.x + area.width - W - 4));
+  menuGeom = { x, w: W, area, anchorBottom: halTop - 8, belowY: halTop + Math.round(0.95 * petSize) + 8 };
+  let y = Math.max(area.y + 4, menuGeom.anchorBottom - initH);
+  menuWin = new BrowserWindow({
+    width: W, height: initH, x, y,
+    frame: false, transparent: true, resizable: false,
+    backgroundColor: '#00000000', skipTaskbar: true, alwaysOnTop: true, hasShadow: false,
+    webPreferences: { nodeIntegration: true, contextIsolation: false },
+  });
+  menuWin.setAlwaysOnTop(true, 'screen-saver');
+  if (IS_MAC) menuWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  menuWin.loadFile(path.join(__dirname, 'menu.html'));
+  menuWin.webContents.on('did-finish-load', () => {
+    if (menuWin && !menuWin.isDestroyed()) menuWin.webContents.send('menu-status', { focus: focusStatus(), water: waterOn });
+  });
+  menuWin.on('blur', () => { if (menuWin && !menuWin.isDestroyed()) menuWin.close(); });
+  menuWin.on('closed', () => { menuWin = null; menuClosedAt = Date.now(); });
+}
+function closeMenu() { if (menuWin && !menuWin.isDestroyed()) menuWin.close(); }
+
+// ---- network speed test: latency to overseas (Claude/Google) + China (Baidu) ----
+function measureLatency(host, cb) {
+  let done = 0, best = null;
+  const N = 2; // take the best of 2 TCP handshakes
+  (function attempt() {
+    const t0 = Date.now();
+    const sock = net.connect({ host, port: 443 });
+    let settled = false;
+    const finish = (ms) => {
+      if (settled) return; settled = true;
+      try { sock.destroy(); } catch {}
+      if (ms != null) best = best == null ? ms : Math.min(best, ms);
+      if (++done >= N) cb(best); else attempt();
+    };
+    sock.setTimeout(3000);
+    sock.on('connect', () => finish(Date.now() - t0));
+    sock.on('timeout', () => finish(null));
+    sock.on('error', () => finish(null));
+  })();
+}
+function runSpeedTest() {
+  if (!win || win.isDestroyed()) return;
+  win.webContents.send('nettest-start');
+  const t0 = Date.now();
+  const targets = [
+    { name: 'Claude', host: 'api.anthropic.com' },
+    { name: 'Google', host: 'www.google.com' },
+    { name: '百度', host: 'www.baidu.com' },
+  ];
+  const results = new Array(targets.length);
+  let remaining = targets.length;
+  targets.forEach((tg, i) => measureLatency(tg.host, (ms) => {
+    results[i] = { name: tg.name, ms };
+    if (--remaining === 0) {
+      const wait = Math.max(0, 1900 - (Date.now() - t0)); // keep the scan animation visible
+      setTimeout(() => { if (win && !win.isDestroyed()) win.webContents.send('nettest-done', results); }, wait);
+    }
+  }));
+}
+
+// ---- two small utilities: a 25-min focus timer, and an hourly water reminder ----
+const FOCUS_MS = 25 * 60 * 1000;
+const WATER_MS = 60 * 60 * 1000;
+function notify(title, body) {
+  try { if (Notification.isSupported()) new Notification({ title, body, silent: false }).show(); } catch {}
+}
+function petSay(text, ms) { if (win && !win.isDestroyed()) win.webContents.send('quote', { text, ms }); }
+
+let focus = null, focusTimer = null;   // focus = { endsAt, duration }
+let waterOn = false, waterTimer = null;
+function focusStatus() { return focus ? { running: true, phase: 'focus', endsAt: focus.endsAt, duration: focus.duration } : { running: false }; }
+function sendStatus() {
+  if (win && !win.isDestroyed()) win.webContents.send('pomodoro', focusStatus()); // drives the countdown ring
+  if (menuWin && !menuWin.isDestroyed()) menuWin.webContents.send('menu-status', { focus: focusStatus(), water: waterOn });
+}
+
+// --- 25-min focus timer (one-shot) — bell + shake when time is up ---
+function startFocus() {
+  focus = { endsAt: Date.now() + FOCUS_MS, duration: FOCUS_MS };
+  focusTimer = setTimeout(() => {
+    focus = null;
+    notify('🍅 专注结束', '完成 25 分钟专注 👏');
+    if (win && !win.isDestroyed()) win.webContents.send('focus-done'); // renderer: bell + shake + bubble
+    sendStatus();
+  }, FOCUS_MS);
+  petSay('🍅 专注开始\n（25 分钟）', 4000);
+  sendStatus();
+}
+function stopFocus() { if (focusTimer) { clearTimeout(focusTimer); focusTimer = null; } focus = null; sendStatus(); }
+function toggleFocus() { if (focus) stopFocus(); else startFocus(); }
+
+// --- hourly water reminder (toggle) ---
+function startWater() {
+  waterOn = true;
+  waterTimer = setInterval(() => { notify('💧 喝水提醒', '起来喝口水，活动一下'); petSay('该喝水了 💧', 6000); }, WATER_MS);
+  petSay('喝水提醒已开（每小时）', 3500);
+  sendStatus();
+}
+function stopWater() { waterOn = false; if (waterTimer) { clearInterval(waterTimer); waterTimer = null; } sendStatus(); }
+function toggleWater() { if (waterOn) stopWater(); else startWater(); }
+
+// ---- today's coding stats (tallied by hook.js into stats.json) ----
+function localDate() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function fmtTokens(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'k';
+  return String(n | 0);
+}
+function showStats() {
+  let s = null;
+  try { s = JSON.parse(fs.readFileSync(path.join(DIR, 'stats.json'), 'utf8')); } catch {}
+  const t = (s && s.date === localDate()) ? s : {};
+  const activeMin = (t.firstTs && t.lastTs) ? Math.max(0, Math.round((t.lastTs - t.firstTs) / 60000)) : 0;
+  const active = activeMin >= 60 ? (Math.floor(activeMin / 60) + 'h' + (activeMin % 60) + 'm') : (activeMin + 'm');
+  const cells = [
+    { label: '提问', value: t.prompts || 0 }, { label: '工具', value: t.tools || 0 },
+    { label: '报错', value: t.errors || 0 }, { label: '代码', value: t.lines || 0 },
+    { label: '活跃', value: active }, { label: 'Token', value: fmtTokens(t.tokens || 0) },
+  ];
+  if (win && !win.isDestroyed()) win.webContents.send('stats-flash'); // brief "computing" in the eye
+  openStatsPopover(cells);
+}
+
+// ---- stats popover: a bubble-styled window above the pet, auto-closes after 3s ----
+let statsWin = null, statsGeom = null, statsCloseTimer = null;
+function fitStats(h) {
+  if (!statsWin || statsWin.isDestroyed() || !statsGeom) return;
+  const H = Math.max(50, Math.round(h) + 2), a = statsGeom.area;
+  let y = statsGeom.anchorBottom - H;
+  y = Math.max(a.y + 4, Math.min(y, a.y + a.height - H - 4));
+  statsWin.setBounds({ x: statsGeom.x, y, width: statsGeom.w, height: H });
+}
+function openStatsPopover(cells) {
+  if (statsWin && !statsWin.isDestroyed()) statsWin.destroy();
+  const W = 232, initH = 170;
+  const b = win.getBounds();
+  const area = screen.getDisplayMatching(b).workArea;
+  const petSize = b.width / 1.9;
+  const halTop = b.y + Math.round(0.76 * petSize);
+  let x = b.x + Math.round(b.width / 2) - Math.round(W / 2);
+  x = Math.max(area.x + 4, Math.min(x, area.x + area.width - W - 4));
+  statsGeom = { x, w: W, area, anchorBottom: halTop - 1 }; // tail tip just above HAL
+  const y = Math.max(area.y + 4, statsGeom.anchorBottom - initH);
+  statsWin = new BrowserWindow({
+    width: W, height: initH, x, y,
+    frame: false, transparent: true, resizable: false, backgroundColor: '#00000000',
+    skipTaskbar: true, alwaysOnTop: true, hasShadow: false, focusable: false,
+    webPreferences: { nodeIntegration: true, contextIsolation: false },
+  });
+  statsWin.setAlwaysOnTop(true, 'screen-saver');
+  if (IS_MAC) statsWin.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  statsWin.loadFile(path.join(__dirname, 'stats.html'));
+  statsWin.webContents.on('did-finish-load', () => { if (statsWin && !statsWin.isDestroyed()) statsWin.webContents.send('stats-data', cells); });
+  statsWin.on('closed', () => { statsWin = null; });
+  if (statsCloseTimer) clearTimeout(statsCloseTimer);
+  statsCloseTimer = setTimeout(() => { if (statsWin && !statsWin.isDestroyed()) statsWin.close(); }, 3000);
+}
+
 function buildMenu() {
   return Menu.buildFromTemplate([
     { label: 'HAL 9000', enabled: false },
@@ -320,6 +503,14 @@ if (!app.requestSingleInstanceLock()) {
   claudeTimer = setInterval(checkClaude, 4000);
 
   ipcMain.on('pet-context-menu', () => buildMenu().popup({ window: win }));
+  ipcMain.on('open-action-menu', () => openMenu());
+  ipcMain.on('close-menu', () => closeMenu());
+  ipcMain.on('run-speedtest', () => { closeMenu(); runSpeedTest(); });
+  ipcMain.on('toggle-focus', () => { closeMenu(); toggleFocus(); });
+  ipcMain.on('toggle-water', () => { closeMenu(); toggleWater(); }); // close first, like focus, so the confirm bubble isn't hidden behind the menu
+  ipcMain.on('run-stats', () => { closeMenu(); showStats(); });
+  ipcMain.on('menu-size', (_e, h) => fitMenu(h));
+  ipcMain.on('stats-size', (_e, h) => fitStats(h));
 
   // hover hit-test drives click-through so the transparent area doesn't block the desktop
   ipcMain.on('interactive', (_e, on) => { hoverInteractive = on; applyIgnore(); });

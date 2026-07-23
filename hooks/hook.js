@@ -11,6 +11,61 @@ const path = require('path');
 const DIR = path.join(os.homedir(), '.claude-pet');
 const STATE_FILE = path.join(DIR, 'state.json');
 const TURN_FILE = path.join(DIR, 'turn.json');
+const STATS_FILE = path.join(DIR, 'stats.json');
+
+function localDate() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function freshStats() {
+  return { date: localDate(), tools: 0, errors: 0, prompts: 0, lines: 0, tokens: 0, firstTs: Date.now(), lastTs: Date.now(), seen: {} };
+}
+function loadStats() {
+  let st = {}; try { st = JSON.parse(fs.readFileSync(STATS_FILE, 'utf8')); } catch {}
+  if (st.date !== localDate()) st = freshStats();
+  return st;
+}
+// tally today's activity for the "今日战绩" utility
+function bumpStats(kind, n) {
+  try {
+    const st = loadStats();
+    st.lastTs = Date.now();
+    if (kind === 'prompt') st.prompts = (st.prompts || 0) + 1;
+    else if (kind === 'tool') st.tools = (st.tools || 0) + 1;
+    else if (kind === 'error') st.errors = (st.errors || 0) + 1;
+    else if (kind === 'lines') st.lines = (st.lines || 0) + (n || 0);
+    fs.writeFileSync(STATS_FILE, JSON.stringify(st));
+  } catch {}
+}
+// count lines written/edited from an Edit/Write/MultiEdit tool_input
+function countLines(inp) {
+  if (!inp) return 0;
+  const cnt = (s) => (s ? String(s).split('\n').length : 0);
+  if (Array.isArray(inp.edits)) return inp.edits.reduce((a, e) => a + cnt(e.new_string), 0);
+  return cnt(inp.new_string) || cnt(inp.content) || 0;
+}
+// best-effort: read the session transcript and add newly-used tokens to today's total
+function tallyTokens(transcriptPath) {
+  try {
+    let total = 0;
+    for (const ln of fs.readFileSync(transcriptPath, 'utf8').split('\n')) {
+      if (!ln.trim()) continue;
+      let o; try { o = JSON.parse(ln); } catch { continue; }
+      // Only genuinely-new tokens: fresh input + output. We deliberately EXCLUDE
+      // both cache_read AND cache_creation — a long session re-reads and re-writes
+      // the same growing context every turn (cache TTL is ~5min), so summing either
+      // across turns balloons into the hundreds of millions for the same content.
+      const u = (o.message && o.message.usage) || o.usage;
+      if (u) total += (u.input_tokens || 0) + (u.output_tokens || 0);
+    }
+    const st = loadStats();
+    st.seen = st.seen || {};
+    const prev = st.seen[transcriptPath] || 0;
+    if (total > prev) { st.tokens = (st.tokens || 0) + (total - prev); st.seen[transcriptPath] = total; }
+    st.lastTs = Date.now();
+    fs.writeFileSync(STATS_FILE, JSON.stringify(st));
+  } catch {}
+}
 
 // A turn counts as "a big job" if it used a lot of tools or ran for a long time.
 const BIG_TOOLS = 10, BIG_MS = 120000;
@@ -22,7 +77,8 @@ const base = args[0] || 'idle';
 const wantTool = args.includes('--tool');
 const wantErr = args.includes('--detect-error');
 const wantNotify = args.includes('--notify');
-const needStdin = wantTool || wantErr || wantNotify;
+const wantStop = args.includes('--stop');
+const needStdin = wantTool || wantErr || wantNotify || wantStop;
 
 let done = false;
 function finish(raw) {
@@ -32,8 +88,8 @@ function finish(raw) {
   let kind = '';
   try { fs.mkdirSync(DIR, { recursive: true }); } catch {}
 
+  let j = null;
   if (raw) {
-    let j = null;
     try { j = JSON.parse(raw); } catch {}
     if (j) {
       if (wantTool) { const info = toolInfo(j); label = info.label; kind = info.kind; }
@@ -42,6 +98,13 @@ function finish(raw) {
     }
     if (wantErr) { try { fs.writeFileSync(path.join(DIR, 'last-tool.json'), raw.slice(0, 20000)); } catch {} }
   }
+
+  // today's tally (提问 / 工具 / 报错 / 代码行数 / token)
+  if (base === 'thinking') bumpStats('prompt');
+  else if (wantTool && !wantErr) bumpStats('tool');
+  if (state === 'error') bumpStats('error');
+  if (wantTool && !wantErr && kind === 'edit' && j) bumpStats('lines', countLines(j.tool_input || j.toolInput));
+  if (wantStop && j && j.transcript_path) tallyTokens(j.transcript_path);
 
   // Track the size of this turn so Stop can tell a big job from a trivial one.
   if (base === 'thinking') {
